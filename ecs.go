@@ -10,14 +10,8 @@ import (
 	"github.com/aws/aws-sdk-go/service/ecs"
 )
 
-func main() {
-	sess := session.Must(session.NewSessionWithOptions(session.Options{
-		SharedConfigState: session.SharedConfigEnable,
-	}))
-
-	svc := ecs.New(sess)
-
-	clustersList, err := svc.ListClusters(&ecs.ListClustersInput{})
+func getClusterList(svc *ecs.ECS) (*ecs.ListClustersOutput, error) {
+	result, err := svc.ListClusters(&ecs.ListClustersInput{})
 	if err != nil {
 		if aerr, ok := err.(awserr.Error); ok {
 			switch aerr.Code() {
@@ -35,11 +29,14 @@ func main() {
 			// Message from an error.
 			fmt.Println(err.Error())
 		}
-		return
+		return nil, err
 	}
+	return result, nil
+}
 
-	clustersDescriptions, err := svc.DescribeClusters(&ecs.DescribeClustersInput{
-		Clusters: clustersList.ClusterArns,
+func getClusterDescriptions(svc *ecs.ECS, clusters []*string) (*ecs.DescribeClustersOutput, error) {
+	result, err := svc.DescribeClusters(&ecs.DescribeClustersInput{
+		Clusters: clusters,
 	})
 	if err != nil {
 		if aerr, ok := err.(awserr.Error); ok {
@@ -58,8 +55,20 @@ func main() {
 			// Message from an error.
 			fmt.Println(err.Error())
 		}
-		return
+		return nil, err
 	}
+
+	return result, nil
+}
+
+func main() {
+	sess := session.Must(session.NewSessionWithOptions(session.Options{
+		SharedConfigState: session.SharedConfigEnable,
+	}))
+
+	svc := ecs.New(sess)
+	clustersList, _ := getClusterList(svc)
+	clustersDescriptions, _ := getClusterDescriptions(svc, clustersList.ClusterArns)
 
 	const format = "%v\t%v\t%v\t\n"
 	tw := new(tabwriter.Writer).Init(os.Stdout, 0, 8, 2, ' ', 0)
