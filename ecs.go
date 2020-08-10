@@ -3,10 +3,12 @@ package main
 import (
 	"fmt"
 	"os"
-	"text/tabwriter"
+	"strconv"
+	"strings"
 
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ecs"
+	"github.com/olekukonko/tablewriter"
 )
 
 func getClusterList(svc *ecs.ECS) (*ecs.ListClustersOutput, error) {
@@ -27,8 +29,7 @@ func getClusterDescriptions(svc *ecs.ECS, clusters []*string) (*ecs.DescribeClus
 	return result, nil
 }
 
-func getServices(svc *ecs.ECS, cluster *string) (*ecs.ListServicesOutput, error) {
-
+func listServices(svc *ecs.ECS, cluster *string) (*ecs.ListServicesOutput, error) {
 	result, err := svc.ListServices(&ecs.ListServicesInput{
 		Cluster: cluster,
 	})
@@ -44,28 +45,29 @@ func describeServices(svc *ecs.ECS, cluster *string, services []*string) (*ecs.D
 		Services: services,
 	})
 	if err != nil {
-		if aerr, ok := err.(awserr.Error); ok {
-			switch aerr.Code() {
-			case ecs.ErrCodeServerException:
-				fmt.Println(ecs.ErrCodeServerException, aerr.Error())
-			case ecs.ErrCodeClientException:
-				fmt.Println(ecs.ErrCodeClientException, aerr.Error())
-			case ecs.ErrCodeInvalidParameterException:
-				fmt.Println(ecs.ErrCodeInvalidParameterException, aerr.Error())
-			case ecs.ErrCodeClusterNotFoundException:
-				fmt.Println(ecs.ErrCodeClusterNotFoundException, aerr.Error())
-			default:
-				fmt.Println(aerr.Error())
-			}
-		} else {
-			// Print the error, cast err to awserr.Error to get the Code and
-			// Message from an error.
-			fmt.Println(err.Error())
-		}
+		return nil, err
+	}
+	return result, nil
+}
+
+func listTasks(svc *ecs.ECS, cluster *string, service *string) (*ecs.DescribeTasksOutput, error) {
+	taskList, err := svc.ListTasks(&ecs.ListTasksInput{
+		Cluster:     cluster,
+		ServiceName: service,
+	})
+	if err != nil {
 		return nil, err
 	}
 
-	return result, nil
+	tasks, err := svc.DescribeTasks(&ecs.DescribeTasksInput{
+		Cluster: cluster,
+		Tasks:   taskList.TaskArns,
+	})
+
+	if err != nil {
+		return nil, err
+	}
+	return tasks, nil
 }
 
 func main() {
@@ -74,24 +76,74 @@ func main() {
 	}))
 
 	svc := ecs.New(sess)
-	clustersList, _ := getClusterList(svc)
-	clustersDescriptions, _ := getClusterDescriptions(svc, clustersList.ClusterArns)
+	clustersList, err := getClusterList(svc)
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	clustersDescriptions, err := getClusterDescriptions(svc, clustersList.ClusterArns)
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
 
-	const format = "%v\t%v\t%v\t\n"
-	tw := new(tabwriter.Writer).Init(os.Stdout, 0, 8, 2, ' ', 0)
-	fmt.Fprintf(tw, format, "Cluster/Service", "Running", "Pending")
-	fmt.Fprintf(tw, format, "---------------", "-------", "-------")
+	table := tablewriter.NewWriter(os.Stdout)
+	table.SetHeader([]string{"Name", "Running", "Pending"})
+	table.SetColumnAlignment([]int{tablewriter.ALIGN_LEFT, tablewriter.ALIGN_RIGHT, tablewriter.ALIGN_RIGHT})
 	for _, c := range clustersDescriptions.Clusters {
-		fmt.Fprintf(tw, format, *c.ClusterName, *c.RunningTasksCount, *c.PendingTasksCount)
+		clusterRow := []string{
+			*c.ClusterName,
+			strconv.FormatInt(*c.RunningTasksCount, 10),
+			strconv.FormatInt(*c.PendingTasksCount, 10),
+		}
 
-		clusterServices, _ := getServices(svc, c.ClusterArn)
+		table.Rich(clusterRow, []tablewriter.Colors{
+			tablewriter.Colors{tablewriter.Bold},
+			tablewriter.Colors{tablewriter.Bold},
+			tablewriter.Colors{tablewriter.Bold},
+		})
+
+		clusterServices, _ := listServices(svc, c.ClusterArn)
 
 		if len(clusterServices.ServiceArns) > 0 {
 			clusterServiceDescriptions, _ := describeServices(svc, c.ClusterArn, clusterServices.ServiceArns)
 			for _, s := range clusterServiceDescriptions.Services {
-				fmt.Fprintf(tw, format, " - "+*s.ServiceName, *s.RunningCount, *s.PendingCount)
+				// taskDef := strings.Split(*s.TaskDefinition, ":")
+				// service := fmt.Sprintf(" - %v (%v)", *s.ServiceName, taskDef[len(taskDef)-1])
+				row := []string{
+					" - " + *s.ServiceName,
+					strconv.FormatInt(*s.RunningCount, 10),
+					strconv.FormatInt(*s.PendingCount, 10),
+				}
+				table.Rich(row, []tablewriter.Colors{
+					tablewriter.Colors{},
+					tablewriter.Colors{},
+					tablewriter.Colors{},
+				})
+
+				serviceTasks, _ := listTasks(svc, c.ClusterArn, s.ServiceName)
+				for _, t := range serviceTasks.Tasks {
+					taskDef := strings.Split(*t.TaskDefinitionArn, ":")
+					task := fmt.Sprintf("  * %v (%v -> %v)",
+						taskDef[len(taskDef)-1],
+						*t.DesiredStatus,
+						*t.LastStatus,
+					)
+					row := []string{
+						task,
+						"",
+						"",
+					}
+					table.Rich(row, []tablewriter.Colors{
+						tablewriter.Colors{},
+						tablewriter.Colors{},
+						tablewriter.Colors{},
+					})
+				}
+
 			}
 		}
 	}
-	tw.Flush()
+
+	table.Render()
 }
