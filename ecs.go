@@ -103,7 +103,11 @@ func main() {
 			tablewriter.Colors{tablewriter.Bold},
 		})
 
-		clusterServices, _ := listServices(svc, c.ClusterArn)
+		clusterServices, err := listServices(svc, c.ClusterArn)
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
 
 		if len(clusterServices.ServiceArns) > 0 {
 			clusterServiceDescriptions, _ := describeServices(svc, c.ClusterArn, clusterServices.ServiceArns)
@@ -121,7 +125,11 @@ func main() {
 					tablewriter.Colors{},
 				})
 
-				serviceTasks, _ := listTasks(svc, c.ClusterArn, s.ServiceName)
+				serviceTasks, err := listTasks(svc, c.ClusterArn, s.ServiceName)
+				if err != nil {
+					fmt.Println(err)
+					os.Exit(1)
+				}
 				for _, t := range serviceTasks.Tasks {
 					taskDef := strings.Split(*t.TaskDefinitionArn, ":")
 					task := fmt.Sprintf("  * %v (%v -> %v)",
