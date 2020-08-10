@@ -112,8 +112,6 @@ func main() {
 		if len(clusterServices.ServiceArns) > 0 {
 			clusterServiceDescriptions, _ := describeServices(svc, c.ClusterArn, clusterServices.ServiceArns)
 			for _, s := range clusterServiceDescriptions.Services {
-				// taskDef := strings.Split(*s.TaskDefinition, ":")
-				// service := fmt.Sprintf(" - %v (%v)", *s.ServiceName, taskDef[len(taskDef)-1])
 				row := []string{
 					" - " + *s.ServiceName,
 					strconv.FormatInt(*s.RunningCount, 10),
