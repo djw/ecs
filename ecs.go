@@ -11,6 +11,26 @@ import (
 	"github.com/olekukonko/tablewriter"
 )
 
+type cluster struct {
+	name     string
+	running  int64
+	pending  int64
+	services []service
+}
+
+type service struct {
+	name    string
+	running int64
+	pending int64
+	tasks   []task
+}
+
+type task struct {
+	revision      int
+	desiredStatus string
+	lastStatus    string
+}
+
 func getClusterList(svc *ecs.ECS) (*ecs.ListClustersOutput, error) {
 	result, err := svc.ListClusters(&ecs.ListClustersInput{})
 	if err != nil {
@@ -87,21 +107,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	table := tablewriter.NewWriter(os.Stdout)
-	table.SetHeader([]string{"Name", "Running", "Pending"})
-	table.SetColumnAlignment([]int{tablewriter.ALIGN_LEFT, tablewriter.ALIGN_RIGHT, tablewriter.ALIGN_RIGHT})
+	var clusters []cluster
 	for _, c := range clustersDescriptions.Clusters {
-		clusterRow := []string{
-			*c.ClusterName,
-			strconv.FormatInt(*c.RunningTasksCount, 10),
-			strconv.FormatInt(*c.PendingTasksCount, 10),
+		cl := cluster{
+			name:    *c.ClusterName,
+			running: *c.RunningTasksCount,
+			pending: *c.PendingTasksCount,
 		}
-
-		table.Rich(clusterRow, []tablewriter.Colors{
-			tablewriter.Colors{tablewriter.Bold},
-			tablewriter.Colors{tablewriter.Bold},
-			tablewriter.Colors{tablewriter.Bold},
-		})
 
 		clusterServices, err := listServices(svc, c.ClusterArn)
 		if err != nil {
@@ -112,16 +124,11 @@ func main() {
 		if len(clusterServices.ServiceArns) > 0 {
 			clusterServiceDescriptions, _ := describeServices(svc, c.ClusterArn, clusterServices.ServiceArns)
 			for _, s := range clusterServiceDescriptions.Services {
-				row := []string{
-					" - " + *s.ServiceName,
-					strconv.FormatInt(*s.RunningCount, 10),
-					strconv.FormatInt(*s.PendingCount, 10),
+				ser := service{
+					name:    *s.ServiceName,
+					running: *s.RunningCount,
+					pending: *s.PendingCount,
 				}
-				table.Rich(row, []tablewriter.Colors{
-					tablewriter.Colors{},
-					tablewriter.Colors{},
-					tablewriter.Colors{},
-				})
 
 				serviceTasks, err := listTasks(svc, c.ClusterArn, s.ServiceName)
 				if err != nil {
@@ -130,23 +137,65 @@ func main() {
 				}
 				for _, t := range serviceTasks.Tasks {
 					taskDef := strings.Split(*t.TaskDefinitionArn, ":")
-					task := fmt.Sprintf("  * %v (%v -> %v)",
-						taskDef[len(taskDef)-1],
-						*t.DesiredStatus,
-						*t.LastStatus,
-					)
-					row := []string{
-						task,
-						"",
-						"",
+					rev, _ := strconv.Atoi(taskDef[len(taskDef)-1])
+					tk := task{
+						revision:      rev,
+						desiredStatus: *t.DesiredStatus,
+						lastStatus:    *t.LastStatus,
 					}
-					table.Rich(row, []tablewriter.Colors{
-						tablewriter.Colors{},
-						tablewriter.Colors{},
-						tablewriter.Colors{},
-					})
+					ser.tasks = append(ser.tasks, tk)
 				}
+				cl.services = append(cl.services, ser)
+			}
+		}
+		clusters = append(clusters, cl)
+	}
 
+	// Print as table
+	table := tablewriter.NewWriter(os.Stdout)
+	table.SetHeader([]string{"Name", "Running", "Pending"})
+	table.SetColumnAlignment([]int{tablewriter.ALIGN_LEFT, tablewriter.ALIGN_RIGHT, tablewriter.ALIGN_RIGHT})
+
+	for _, c := range clusters {
+		clusterRow := []string{
+			c.name,
+			strconv.FormatInt(c.running, 10),
+			strconv.FormatInt(c.pending, 10),
+		}
+
+		table.Rich(clusterRow, []tablewriter.Colors{
+			tablewriter.Colors{tablewriter.Bold},
+			tablewriter.Colors{tablewriter.Bold},
+			tablewriter.Colors{tablewriter.Bold},
+		})
+
+		for _, s := range c.services {
+			row := []string{
+				" - " + s.name,
+				strconv.FormatInt(s.running, 10),
+				strconv.FormatInt(s.pending, 10),
+			}
+			table.Rich(row, []tablewriter.Colors{
+				tablewriter.Colors{},
+				tablewriter.Colors{},
+				tablewriter.Colors{},
+			})
+			for _, t := range s.tasks {
+				task := fmt.Sprintf("  * %d (%v -> %v)",
+					t.revision,
+					t.desiredStatus,
+					t.lastStatus,
+				)
+				row := []string{
+					task,
+					"",
+					"",
+				}
+				table.Rich(row, []tablewriter.Colors{
+					tablewriter.Colors{},
+					tablewriter.Colors{},
+					tablewriter.Colors{},
+				})
 			}
 		}
 	}
