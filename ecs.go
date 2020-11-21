@@ -5,6 +5,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ecs"
@@ -13,12 +14,14 @@ import (
 
 type cluster struct {
 	name     string
+	arn      *string
 	running  int64
 	pending  int64
-	services []service
+	services []*service
 }
 
 type service struct {
+	cluster cluster
 	name    string
 	running int64
 	pending int64
@@ -70,24 +73,37 @@ func describeServices(svc *ecs.ECS, cluster *string, services []*string) (*ecs.D
 	return result, nil
 }
 
-func listTasks(svc *ecs.ECS, cluster *string, service *string) (*ecs.DescribeTasksOutput, error) {
+func (s *service) fetchTasks(svc *ecs.ECS) error {
 	taskList, err := svc.ListTasks(&ecs.ListTasksInput{
-		Cluster:     cluster,
-		ServiceName: service,
+		Cluster:     s.cluster.arn,
+		ServiceName: &s.name,
 	})
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	tasks, err := svc.DescribeTasks(&ecs.DescribeTasksInput{
-		Cluster: cluster,
+	taskDescriptions, err := svc.DescribeTasks(&ecs.DescribeTasksInput{
+		Cluster: s.cluster.arn,
 		Tasks:   taskList.TaskArns,
 	})
 
 	if err != nil {
-		return nil, err
+		return err
 	}
-	return tasks, nil
+
+	var tasks []task
+	for _, t := range taskDescriptions.Tasks {
+		taskDef := strings.Split(*t.TaskDefinitionArn, ":")
+		rev, _ := strconv.Atoi(taskDef[len(taskDef)-1])
+		tk := task{
+			revision:      rev,
+			desiredStatus: *t.DesiredStatus,
+			lastStatus:    *t.LastStatus,
+		}
+		tasks = append(tasks, tk)
+	}
+	s.tasks = tasks
+	return nil
 }
 
 func main() {
@@ -110,6 +126,7 @@ func main() {
 	var clusters []cluster
 	for _, c := range clustersDescriptions.Clusters {
 		cl := cluster{
+			arn:     c.ClusterArn,
 			name:    *c.ClusterName,
 			running: *c.RunningTasksCount,
 			pending: *c.PendingTasksCount,
@@ -123,30 +140,27 @@ func main() {
 
 		if len(clusterServices.ServiceArns) > 0 {
 			clusterServiceDescriptions, _ := describeServices(svc, c.ClusterArn, clusterServices.ServiceArns)
+			var wg sync.WaitGroup
 			for _, s := range clusterServiceDescriptions.Services {
-				ser := service{
+				ser := &service{
+					cluster: cl,
 					name:    *s.ServiceName,
 					running: *s.RunningCount,
 					pending: *s.PendingCount,
 				}
 
-				serviceTasks, err := listTasks(svc, c.ClusterArn, s.ServiceName)
-				if err != nil {
-					fmt.Println(err)
-					os.Exit(1)
-				}
-				for _, t := range serviceTasks.Tasks {
-					taskDef := strings.Split(*t.TaskDefinitionArn, ":")
-					rev, _ := strconv.Atoi(taskDef[len(taskDef)-1])
-					tk := task{
-						revision:      rev,
-						desiredStatus: *t.DesiredStatus,
-						lastStatus:    *t.LastStatus,
+				wg.Add(1)
+				go func(s *service) {
+					defer wg.Done()
+					err := s.fetchTasks(svc)
+					if err != nil {
+						fmt.Println(err)
 					}
-					ser.tasks = append(ser.tasks, tk)
-				}
+				}(ser)
+
 				cl.services = append(cl.services, ser)
 			}
+			wg.Wait()
 		}
 		clusters = append(clusters, cl)
 	}
