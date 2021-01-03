@@ -10,14 +10,15 @@ import (
 )
 
 func main() {
-	clusters := wrapper.GetClusters()
+	clusters := make(chan *wrapper.Cluster)
+	go wrapper.GetClusters(clusters)
 
 	// Print as table
 	table := tablewriter.NewWriter(os.Stdout)
 	table.SetHeader([]string{"Name", "Running", "Pending"})
 	table.SetColumnAlignment([]int{tablewriter.ALIGN_LEFT, tablewriter.ALIGN_RIGHT, tablewriter.ALIGN_RIGHT})
 
-	for _, c := range clusters {
+	for c := range clusters {
 		clusterRow := []string{
 			c.Name,
 			strconv.FormatInt(c.Running, 10),

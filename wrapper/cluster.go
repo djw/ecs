@@ -57,8 +57,9 @@ func getClusterDescriptions(svc *ecs.ECS, clusters []*string) (*ecs.DescribeClus
 	return result, nil
 }
 
-// GetClusters fetches a list of all clusters with descriptions
-func GetClusters() []Cluster {
+// GetClusters fetches a list of all clusters with descriptions.
+// Results are returned to a channel.
+func GetClusters(clusters chan<- *Cluster) {
 
 	sess := session.Must(session.NewSessionWithOptions(session.Options{
 		SharedConfigState: session.SharedConfigEnable,
@@ -77,9 +78,8 @@ func GetClusters() []Cluster {
 		os.Exit(1)
 	}
 
-	var clusters []Cluster
 	for _, c := range clustersDescriptions.Clusters {
-		cl := Cluster{
+		cl := &Cluster{
 			Arn:     c.ClusterArn,
 			Name:    *c.ClusterName,
 			Running: *c.RunningTasksCount,
@@ -97,7 +97,7 @@ func GetClusters() []Cluster {
 			var wg sync.WaitGroup
 			for _, s := range clusterServiceDescriptions.Services {
 				ser := &service{
-					Cluster: cl,
+					Cluster: *cl,
 					Name:    *s.ServiceName,
 					Running: *s.RunningCount,
 					Pending: *s.PendingCount,
@@ -116,7 +116,7 @@ func GetClusters() []Cluster {
 			}
 			wg.Wait()
 		}
-		clusters = append(clusters, cl)
+		clusters <- cl
 	}
-	return clusters
+	close(clusters)
 }
