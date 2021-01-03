@@ -5,6 +5,7 @@ import (
 	"os"
 	"sync"
 
+	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ecs"
 )
 
@@ -57,7 +58,14 @@ func getClusterDescriptions(svc *ecs.ECS, clusters []*string) (*ecs.DescribeClus
 }
 
 // GetClusters fetches a list of all clusters with descriptions
-func GetClusters(svc *ecs.ECS) []Cluster {
+func GetClusters() []Cluster {
+
+	sess := session.Must(session.NewSessionWithOptions(session.Options{
+		SharedConfigState: session.SharedConfigEnable,
+	}))
+
+	svc := ecs.New(sess)
+
 	clustersList, err := getClusterList(svc)
 	if err != nil {
 		fmt.Println(err)

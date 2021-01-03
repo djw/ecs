@@ -5,37 +5,12 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/ecs"
 	"github.com/djw/ecs/wrapper"
 	"github.com/olekukonko/tablewriter"
 )
 
-func getClusterList(svc *ecs.ECS) (*ecs.ListClustersOutput, error) {
-	result, err := svc.ListClusters(&ecs.ListClustersInput{})
-	if err != nil {
-		return nil, err
-	}
-	return result, nil
-}
-
-func getClusterDescriptions(svc *ecs.ECS, clusters []*string) (*ecs.DescribeClustersOutput, error) {
-	result, err := svc.DescribeClusters(&ecs.DescribeClustersInput{
-		Clusters: clusters,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return result, nil
-}
-
 func main() {
-	sess := session.Must(session.NewSessionWithOptions(session.Options{
-		SharedConfigState: session.SharedConfigEnable,
-	}))
-
-	svc := ecs.New(sess)
-	clusters := wrapper.GetClusters(svc)
+	clusters := wrapper.GetClusters()
 
 	// Print as table
 	table := tablewriter.NewWriter(os.Stdout)
