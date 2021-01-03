@@ -8,15 +8,16 @@ import (
 	"github.com/aws/aws-sdk-go/service/ecs"
 )
 
+// Cluster describes an ECS Cluster
 type Cluster struct {
 	Name     string
 	Arn      *string
 	Running  int64
 	Pending  int64
-	Services []*Service
+	Services []*service
 }
 
-func (c *Cluster) ListServices(svc *ecs.ECS) (*ecs.ListServicesOutput, error) {
+func (c *Cluster) listServices(svc *ecs.ECS) (*ecs.ListServicesOutput, error) {
 	result, err := svc.ListServices(&ecs.ListServicesInput{
 		Cluster: c.Arn,
 	})
@@ -26,7 +27,7 @@ func (c *Cluster) ListServices(svc *ecs.ECS) (*ecs.ListServicesOutput, error) {
 	return result, nil
 }
 
-func (c *Cluster) DescribeServices(svc *ecs.ECS, services []*string) (*ecs.DescribeServicesOutput, error) {
+func (c *Cluster) describeServices(svc *ecs.ECS, services []*string) (*ecs.DescribeServicesOutput, error) {
 	result, err := svc.DescribeServices(&ecs.DescribeServicesInput{
 		Cluster:  c.Arn,
 		Services: services,
@@ -55,6 +56,7 @@ func getClusterDescriptions(svc *ecs.ECS, clusters []*string) (*ecs.DescribeClus
 	return result, nil
 }
 
+// GetClusters fetches a list of all clusters with descriptions
 func GetClusters(svc *ecs.ECS) []Cluster {
 	clustersList, err := getClusterList(svc)
 	if err != nil {
@@ -76,17 +78,17 @@ func GetClusters(svc *ecs.ECS) []Cluster {
 			Pending: *c.PendingTasksCount,
 		}
 
-		clusterServices, err := cl.ListServices(svc)
+		clusterServices, err := cl.listServices(svc)
 		if err != nil {
 			fmt.Println(err)
 			os.Exit(1)
 		}
 
 		if len(clusterServices.ServiceArns) > 0 {
-			clusterServiceDescriptions, _ := cl.DescribeServices(svc, clusterServices.ServiceArns)
+			clusterServiceDescriptions, _ := cl.describeServices(svc, clusterServices.ServiceArns)
 			var wg sync.WaitGroup
 			for _, s := range clusterServiceDescriptions.Services {
-				ser := &Service{
+				ser := &service{
 					Cluster: cl,
 					Name:    *s.ServiceName,
 					Running: *s.RunningCount,
@@ -94,9 +96,9 @@ func GetClusters(svc *ecs.ECS) []Cluster {
 				}
 
 				wg.Add(1)
-				go func(s *Service) {
+				go func(s *service) {
 					defer wg.Done()
-					err := s.FetchTasks(svc)
+					err := s.fetchTasks(svc)
 					if err != nil {
 						fmt.Println(err)
 					}

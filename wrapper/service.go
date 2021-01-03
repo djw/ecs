@@ -7,7 +7,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/ecs"
 )
 
-type Service struct {
+type service struct {
 	Cluster Cluster
 	Name    string
 	Running int64
@@ -15,7 +15,7 @@ type Service struct {
 	Tasks   []task
 }
 
-func (s *Service) FetchTasks(svc *ecs.ECS) error {
+func (s *service) fetchTasks(svc *ecs.ECS) error {
 	taskList, err := svc.ListTasks(&ecs.ListTasksInput{
 		Cluster:     s.Cluster.Arn,
 		ServiceName: &s.Name,
