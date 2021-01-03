@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"strconv"
-	"sync"
 
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ecs"
@@ -36,58 +35,7 @@ func main() {
 	}))
 
 	svc := ecs.New(sess)
-	clustersList, err := getClusterList(svc)
-	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
-	}
-	clustersDescriptions, err := getClusterDescriptions(svc, clustersList.ClusterArns)
-	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
-	}
-
-	var clusters []wrapper.Cluster
-	for _, c := range clustersDescriptions.Clusters {
-		cl := wrapper.Cluster{
-			Arn:     c.ClusterArn,
-			Name:    *c.ClusterName,
-			Running: *c.RunningTasksCount,
-			Pending: *c.PendingTasksCount,
-		}
-
-		clusterServices, err := cl.ListServices(svc)
-		if err != nil {
-			fmt.Println(err)
-			os.Exit(1)
-		}
-
-		if len(clusterServices.ServiceArns) > 0 {
-			clusterServiceDescriptions, _ := cl.DescribeServices(svc, clusterServices.ServiceArns)
-			var wg sync.WaitGroup
-			for _, s := range clusterServiceDescriptions.Services {
-				ser := &wrapper.Service{
-					Cluster: cl,
-					Name:    *s.ServiceName,
-					Running: *s.RunningCount,
-					Pending: *s.PendingCount,
-				}
-
-				wg.Add(1)
-				go func(s *wrapper.Service) {
-					defer wg.Done()
-					err := s.FetchTasks(svc)
-					if err != nil {
-						fmt.Println(err)
-					}
-				}(ser)
-
-				cl.Services = append(cl.Services, ser)
-			}
-			wg.Wait()
-		}
-		clusters = append(clusters, cl)
-	}
+	clusters := wrapper.GetClusters(svc)
 
 	// Print as table
 	table := tablewriter.NewWriter(os.Stdout)
