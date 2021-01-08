@@ -78,6 +78,7 @@ func GetClusters(clusters chan<- *Cluster) {
 		os.Exit(1)
 	}
 
+	var clusterWg sync.WaitGroup
 	for _, c := range clustersDescriptions.Clusters {
 		cl := &Cluster{
 			Arn:     c.ClusterArn,
@@ -86,37 +87,46 @@ func GetClusters(clusters chan<- *Cluster) {
 			Pending: *c.PendingTasksCount,
 		}
 
-		clusterServices, err := cl.listServices(svc)
-		if err != nil {
-			fmt.Println(err)
-			os.Exit(1)
-		}
+		clusterWg.Add(1)
+		go func(cl *Cluster) {
+			defer clusterWg.Done()
 
-		if len(clusterServices.ServiceArns) > 0 {
-			clusterServiceDescriptions, _ := cl.describeServices(svc, clusterServices.ServiceArns)
-			var wg sync.WaitGroup
-			for _, s := range clusterServiceDescriptions.Services {
-				ser := &service{
-					Cluster: *cl,
-					Name:    *s.ServiceName,
-					Running: *s.RunningCount,
-					Pending: *s.PendingCount,
-				}
-
-				wg.Add(1)
-				go func(s *service) {
-					defer wg.Done()
-					err := s.fetchTasks(svc)
-					if err != nil {
-						fmt.Println(err)
-					}
-				}(ser)
-
-				cl.Services = append(cl.Services, ser)
+			clusterServices, err := cl.listServices(svc)
+			if err != nil {
+				fmt.Println(err)
+				os.Exit(1)
 			}
-			wg.Wait()
-		}
-		clusters <- cl
+
+			if len(clusterServices.ServiceArns) > 0 {
+				clusterServiceDescriptions, _ := cl.describeServices(svc, clusterServices.ServiceArns)
+				var taskWg sync.WaitGroup
+				for _, s := range clusterServiceDescriptions.Services {
+					ser := &service{
+						Cluster: *cl,
+						Name:    *s.ServiceName,
+						Running: *s.RunningCount,
+						Pending: *s.PendingCount,
+					}
+
+					taskWg.Add(1)
+					go func(s *service) {
+						defer taskWg.Done()
+						err := s.fetchTasks(svc)
+						if err != nil {
+							fmt.Println(err)
+						}
+					}(ser)
+
+					cl.Services = append(cl.Services, ser)
+				}
+				taskWg.Wait()
+			}
+			clusters <- cl
+		}(cl)
+
 	}
-	close(clusters)
+	go func() {
+		clusterWg.Wait()
+		close(clusters)
+	}()
 }
