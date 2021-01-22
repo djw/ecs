@@ -21,8 +21,8 @@ func main() {
 	for c := range clusters {
 		clusterRow := []string{
 			c.Name,
-			strconv.FormatInt(c.Running, 10),
-			strconv.FormatInt(c.Pending, 10),
+			strconv.FormatInt(int64(c.Running), 10),
+			strconv.FormatInt(int64(c.Pending), 10),
 		}
 
 		table.Rich(clusterRow, []tablewriter.Colors{
@@ -34,8 +34,8 @@ func main() {
 		for _, s := range c.Services {
 			row := []string{
 				" - " + s.Name,
-				strconv.FormatInt(s.Running, 10),
-				strconv.FormatInt(s.Pending, 10),
+				strconv.FormatInt(int64(s.Running), 10),
+				strconv.FormatInt(int64(s.Pending), 10),
 			}
 			table.Rich(row, []tablewriter.Colors{
 				tablewriter.Colors{},

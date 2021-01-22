@@ -1,22 +1,23 @@
 package wrapper
 
 import (
+	"context"
 	"strconv"
 	"strings"
 
-	"github.com/aws/aws-sdk-go/service/ecs"
+	"github.com/aws/aws-sdk-go-v2/service/ecs"
 )
 
 type service struct {
 	Cluster Cluster
 	Name    string
-	Running int64
-	Pending int64
+	Running int32
+	Pending int32
 	Tasks   []task
 }
 
-func (s *service) fetchTasks(svc *ecs.ECS) error {
-	taskList, err := svc.ListTasks(&ecs.ListTasksInput{
+func (s *service) fetchTasks(client *ecs.Client) error {
+	taskList, err := client.ListTasks(context.TODO(), &ecs.ListTasksInput{
 		Cluster:     s.Cluster.Arn,
 		ServiceName: &s.Name,
 	})
@@ -24,7 +25,7 @@ func (s *service) fetchTasks(svc *ecs.ECS) error {
 		return err
 	}
 
-	taskDescriptions, err := svc.DescribeTasks(&ecs.DescribeTasksInput{
+	taskDescriptions, err := client.DescribeTasks(context.TODO(), &ecs.DescribeTasksInput{
 		Cluster: s.Cluster.Arn,
 		Tasks:   taskList.TaskArns,
 	})
